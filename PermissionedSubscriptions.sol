@@ -80,22 +80,24 @@ contract EndUser {
     // Inform an end user of an update for a user they are subscribed to
     function subscribedUpdate ( EndUser user, bool conditionYet ) public onlyTrusted {
         //TODO Anything else need to happen?
-        emit subUpdateEvent ( this.identity, user.identity, conditionYet );
+        emit subUpdateEvent ( this.identity(), user.identity(), conditionYet );
     }
     
-    
+    // Grant subscriber status to another user
     function allowSubscription ( EndUser subscriber ) public onlyOwner {
         subscribers.push(subscriber);
     }
     
-    function getSubscription ( EndUser subscriber ) public onlySubscribers {
+    // Subscribe to this user's updates
+    function subscribe ( EndUser subscriber ) public onlySubscribers {
+        // Register the subscriber with all issuers
         for ( uint i = 0; i < trustedIssuers.length; i++ ) {
             Issuer issuer = trustedIssuers[i];
             issuer.newSubscription( this, subscriber );
         }
     }
     
-    
+    //TODO unsubscribe?
     
     
     // Add a new data issuer to the registry of trusted issuers
@@ -103,11 +105,15 @@ contract EndUser {
         trustedIssuers.push( newIssuer );
     }
     
-    //function stopTrusting ( address badIssuer ) public onlyOwner {
+    function stopTrusting ( Issuer badIssuer ) public onlyOwner {
         // TODO does pop work by reference?
         // TODO what if issuer not in list?
-      //  trustedIssuers.pop ( badIssuer );
-    //}
+        for ( uint i = 0; i < trustedIssuers.length; i++ ) {
+            Issuer issuer = trustedIssuers[i];
+            // TODO delete sets element to default value. What is that and is it safe?
+            if ( issuer == badIssuer ) delete trustedIssuers[i];
+        }
+    }
 }
 
 
@@ -138,8 +144,10 @@ contract Issuer {
         require ( msg.sender == owner ); _;
     }
     
-    function sendUpdate( EndUser user, bool conditionYet ) public onlyOwner {
+    function sendUpdate( address user, bool conditionYet ) public onlyOwner {
         
+        enduser = mymap[user]
+        require(enduser != null, "Wrong address!")
         // Send out an update to a user,
         // and send out a copy of the data to subscribed users.
         
@@ -147,20 +155,28 @@ contract Issuer {
         user.updateData( conditionYet );
         
         // TODO is it good/bad/required to copy this to memory?
-        Subscriber[] memory subs = subsDirectory[ address(user) ];
+        Subscriber[] subs = subsDirectory[ address(user) ];
         
         // The subscriber update
         for ( uint256 i = 0; i < subs.length; i++ ) {
+            //check ne expired
             Subscriber memory sub = subs[i];
             // Check that the subscription date is still valid
-            if ( sub.expirationDate > now )
+            if ( now > sub.expirationDate ){
+                //mark expired
+            } else
                 sub.user.subscribedUpdate ( user, conditionYet );
             // TODO else: delete sub from list?
         }   
     }
     
     function newSubscription ( EndUser user, EndUser subscriber ) public {
-        // Subscribe
+        // Register a subscriber for a user's updates
+        Subscriber memory sub;
+        sub.user = subscriber;
+        // TODO Maar hoe komt ethereum aan now????
+        sub.expirationDate = now + 12 weeks; //TODO variable lease
+        subsDirectory[ address(user) ].push( sub );
     }
     
 }
