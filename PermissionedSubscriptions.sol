@@ -9,6 +9,8 @@
     This might be accomplished with the Azure protocol, or yet-to-be-developed means.
 */
 
+// yoyo vscode/github sync test!
+
 pragma solidity ^0.5.0;
 
 contract EndUser {
