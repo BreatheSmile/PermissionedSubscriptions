@@ -3,8 +3,9 @@ pragma solidity ^0.5.0;
 
 import "./EndUser.sol"; //The subject of, or subscriber to, updates by issuers
 import "./helpers/access/Roles.sol"; //Role management
+import "./helpers/access/Whitelist.sol"; //Whitelisting
 
-contract Issuer {
+contract Issuer is Whitelist {
     
     /*  An issuing authority keeps track of subscriptions to updates.
         The issuer sends out data updates to users that own the data
@@ -22,12 +23,12 @@ contract Issuer {
     event ownerAdded(address newOwner);
     event ownerRemoved(address oldOwner);
 
-    function addOwner(address newOwner) public onlyOwner {
+    function addOwner(address newOwner) public whitelistOnly(msg.sender, owners) {
         owners.add(newOwner);
         emit ownerAdded(newOwner);
     }
 
-    function removeOwner(address oldOwner) public onlyOwner {
+    function removeOwner(address oldOwner) public whitelistOnly(msg.sender, owners) {
         owners.remove(oldOwner);
         emit ownerRemoved(oldOwner);
     }
@@ -45,47 +46,43 @@ contract Issuer {
         owners.add(msg.sender);    
     }
     
-    // A modifier restricting function access to the contract's owner
-    modifier onlyOwner {
-        require (owners.has(msg.sender), "Only owner can call");
-        _;
-    }
-
-    modifier whitelistUser(EndUser user) {
-        require(users.has(address(user)), "User not whitelisted");
-        _;
-    }
-    
-    function sendUpdate(EndUser user, bool conditionYet) public onlyOwner whitelistUser(user) {
+    function sendUpdate(EndUser user,  bool anon, bool conditionYet) public
+        whitelistOnly(msg.sender, owners)
+        whitelistOnly(address(user), users) {
         // Send out an update to a user,
         // and send out a copy of the data to subscribed users.
         
+        // TODO should probably implement a pull model,
+        // or otherwise handle failed calls
+
         // Send the update to the user whose data is renewed
         user.updateData(conditionYet);
         
-        // TODO is it good/bad/required to copy this to memory?
-        Subscriber[] memory subs = subsDirectory[address(user)];
+        // Send the update to all subscribers
+        Subscriber[] storage subs = subsDirectory[address(user)];
         
-        // The subscriber update
-        for ( uint256 i = 0; i < subs.length; i++ ) {
-            //check ne expired
+        for (uint256 i = 0; i < subs.length; i++) {
             Subscriber memory sub = subs[i];
-            // Check that the subscription date is still valid
-            if ( now > sub.expirationDate ){
-                //mark expired
+            // Check whether the subscription has expired
+            if (block.timestamp > sub.expirationDate){
+                //The subscription has expired
+                //TODO rearrange the subscriber list
             } else
-                sub.user.subscribedUpdate ( user, conditionYet );
-            // TODO else: delete sub from list?
-        }   
+                // The subscription is valid
+                // Post the update
+                if (anon){
+                    sub.user.subscribedUpdateAnon (conditionYet);
+                }
+                else sub.user.subscribedUpdate (user, conditionYet);
+        }
     }
     
     function newSubscription ( EndUser user, EndUser subscriber ) public {
         // Register a subscriber for a user's updates
         Subscriber memory sub;
         sub.user = subscriber;
-        // TODO Maar hoe komt ethereum aan now????
-        sub.expirationDate = now + 12 weeks; //TODO variable lease
-        subsDirectory[ address(user) ].push( sub );
+        sub.expirationDate = block.timestamp + 12 weeks; //TODO variable lease
+        subsDirectory[address(user)].push(sub);
     }
     
 }
