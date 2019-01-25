@@ -33,24 +33,38 @@ contract Issuer is Whitelist {
         emit ownerRemoved(oldOwner);
     }
 
+    function addUser(EndUser user) public whitelistOnly(msg.sender, owners) {
+        users.add(address(user));
+    }
+
+    function removeUser(EndUser user) public whitelistOnly(msg.sender, owners){
+        users.remove(address(user));
+    }
+
+    // TODO Might make more sense that this is a Subscription?
+    // The same user can be a subscriber for multiple end users' updates...
     struct Subscriber {
         EndUser user;
         uint256 expirationDate;
     }
+
+    // The time until a subscription expires
+    uint subscriberLease;
     
-    // A list of subscribed users
+    //A list of subscribed users
     mapping (address => Subscriber[]) subsDirectory;
-        
-    constructor ( ) public {
+            
+    constructor (uint _subscriberLease) public {
         // Assign the owner role
-        owners.add(msg.sender);    
+        owners.add(msg.sender);
+        subscriberLease = _subscriberLease;
     }
     
+    // Send out an update to a user,
+    // and send out a copy of the data to subscribed users.
     function sendUpdate(EndUser user,  bool anon, bool conditionYet) public
         whitelistOnly(msg.sender, owners)
         whitelistOnly(address(user), users) {
-        // Send out an update to a user,
-        // and send out a copy of the data to subscribed users.
         
         // TODO should probably implement a pull model,
         // or otherwise handle failed calls
@@ -61,12 +75,24 @@ contract Issuer is Whitelist {
         // Send the update to all subscribers
         Subscriber[] storage subs = subsDirectory[address(user)];
         
-        for (uint256 i = 0; i < subs.length; i++) {
+        for (uint i = 0; i < subs.length; i++) {
             Subscriber memory sub = subs[i];
             // Check whether the subscription has expired
             if (block.timestamp > sub.expirationDate){
                 //The subscription has expired
-                //TODO rearrange the subscriber list
+                /*TODO best way to delete a subscriber?
+                Current implementation:
+                Move the tail element of the array
+                to the deletion site.
+                Then shorten the array by 1 position.
+                */
+                uint tailIndex = subs.length - 1;
+                if (i != tailIndex) {
+                    // Check that i wasn't the tail index already
+                    subs[i] = subs[tailIndex];
+                }
+                // Shorten the list, implicitly deleting the element at the end
+                subs.length -= 1;
             } else
                 // The subscription is valid
                 // Post the update
@@ -77,11 +103,18 @@ contract Issuer is Whitelist {
         }
     }
     
-    function newSubscription ( EndUser user, EndUser subscriber ) public {
-        // Register a subscriber for a user's updates
+    // Register a subscriber for a user's updates
+    function newSubscription ( EndUser user, EndUser subscriber ) public
+        whitelistOnly(address(user), users)
+        whitelistOnly(address(subscriber), users) {
+        require(msg.sender == address(user), "Subscription can only be authorized by data owner");
+        
+        // Set up a Subscriber struct instance
         Subscriber memory sub;
         sub.user = subscriber;
-        sub.expirationDate = block.timestamp + 12 weeks; //TODO variable lease
+        sub.expirationDate = block.timestamp + subscriberLease;
+        
+        // Add the Subscriber to the registry
         subsDirectory[address(user)].push(sub);
     }
     
